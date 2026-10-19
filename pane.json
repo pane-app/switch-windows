@@ -1,8 +1,8 @@
 {
   "manifestVersion": 1,
   "title": "Switch Windows",
-  "version": "0.1.0",
-  "apiVersion": "0.1",
+  "version": "0.2.0",
+  "apiVersion": "0.2",
   "platforms": ["windows"],
   "icon": "icon.svg",
   "commands": [
@@ -11,7 +11,7 @@
       "title": "Switch Windows",
       "subtitle": "The open windows as Alt+Tab shows them; typing finds one, Enter switches to it",
       "component": "switch_windows.wasm",
-      "search": true
+      "mode": "designed"
     }
   ]
 }
