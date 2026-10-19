@@ -4,7 +4,9 @@
 //! it with Enter. The host lists the windows (`pane_extension::windows`)
 //! in z-order with the front application's first, so switching back to
 //! what the user was in before opening Pane is one keystroke; typing
-//! filters by title and application name, as the command's search. Enter
+//! filters by title and application name. The screen is a designed List
+//! (pane-app/pane#240), which Pane filters by the text typed in its search
+//! field, each item's keywords naming its application. Enter
 //! brings the chosen window to the front, restoring it if it is
 //! minimized, and a window that closed says so. Window actions (close,
 //! minimize, maximize, restore, keep on top) are a later slice.
@@ -13,34 +15,36 @@
 use pane_extension::alloc::{
     format,
     string::{String, ToString},
-    vec::Vec,
 };
-use pane_extension::feedback::{ToastStyle, show_hud};
-use pane_extension::search::SearchResult;
+use pane_extension::feedback::{HudStyle, show_hud};
+use pane_extension::view::{Cx, IntoAnswer, View, empty_state, item, list};
 use pane_extension::window::{PopToRootType, close};
 use pane_extension::windows::{self, Window};
-use pane_extension::{Command, Icon, Item, List, NoCustomView};
+use pane_extension::{Command, Icon, LaunchRecord};
 
 /// The command's id in `pane.json`.
 const SWITCH: &str = "switch-windows";
 
 struct Switch;
 pane_extension::export!(Switch);
-pane_extension::search::export!(Switch);
 
 /// The error's message, as the answer the launcher shows.
 fn explain(error: windows::WindowsError) -> String {
     error.message().to_string()
 }
 
-/// One listed window: its title, its application's name, and the
+/// One listed window: its title, its application's name (also its
+/// keyword, which the List's filtering matches besides the title), and the
 /// application's icon, with "on another desktop" said of one that is.
-fn item(window: &Window) -> Item {
-    let (id, name) = (window.id.clone(), subtitle(window));
+/// Enter switches to it.
+fn window_item(cx: &mut Cx<Windows>, window: &Window) -> pane_extension::view::Item {
+    let id = window.id.clone();
     let icon = window.icon.clone().map(Icon::file);
-    let listed = Item::new(window.id.clone(), window.title.clone())
-        .subtitle(name)
-        .on_action(move || switch(id));
+    let listed = item(window.id.clone())
+        .title(window.title.clone())
+        .subtitle(subtitle(window))
+        .keyword(window.application_name.clone())
+        .on_press(cx.listener(move |_: &mut Windows| switch(&id)));
     match icon {
         Some(icon) => listed.icon(icon),
         None => listed,
@@ -61,61 +65,49 @@ fn subtitle(window: &Window) -> String {
 /// window can take the foreground, then the host brings it to the front,
 /// restoring it if it is minimized. A window that closed, or one that did
 /// not come to the front, says why in a HUD.
-async fn switch(id: String) -> Result<(), String> {
+fn switch(id: &str) {
     close(false, PopToRootType::Default);
-    if let Err(error) = windows::activate(&id) {
-        show_hud(error.message(), ToastStyle::Failure);
+    if let Err(error) = windows::activate(id) {
+        show_hud(error.message(), HudStyle::Failure);
     }
-    Ok(())
+}
+
+/// The command's screen: the windows Alt+Tab would show, in z-order with
+/// the front application's first, listed anew each time it is drawn;
+/// Enter switches to one. With none to show (nothing else is open) the
+/// list says so.
+struct Windows;
+
+impl View for Windows {
+    fn render(&mut self, cx: &mut Cx<Self>) -> impl IntoAnswer {
+        let listed = windows::list_windows().map_err(explain)?;
+        let mut view = list()
+            .navigation_title("Switch Windows")
+            .search_placeholder("Filter the windows…");
+        if listed.is_empty() {
+            view = view.child(
+                empty_state("No other windows are open")
+                    .description("The window you were in is the only one"),
+            );
+        }
+        for window in listed.iter() {
+            view = view.child(window_item(cx, window));
+        }
+        Ok::<_, String>(view)
+    }
 }
 
 impl Command for Switch {
-    type CustomView = NoCustomView;
+    /// The windows the command lists: a designed view (its `pane.json`
+    /// entry says `"mode": "designed"`).
+    type DesignedView = Windows;
 
-    /// The windows Alt+Tab would show, in z-order with the front
-    /// application's first; Enter switches to one. With none to show —
-    /// nothing else is open — the list says so.
-    async fn render() -> Result<List, String> {
-        let listed = windows::list_windows().map_err(explain)?;
-        if listed.is_empty() {
-            return Ok(List::new("Switch Windows").item(
-                Item::new("none", "No other windows are open")
-                    .subtitle("The window you were in is the only one"),
-            ));
-        }
-        Ok(List::new("Switch Windows").items(listed.iter().map(item)))
-    }
-
-    /// Runs the search result the user chose: the window its id names,
-    /// switched to.
-    async fn run_search_result(id: String) -> Result<(), String> {
-        switch(id).await
-    }
-}
-
-impl pane_extension::search::Guest for Switch {
-    /// The windows whose title or application's name matches what is
-    /// typed, in the order they were listed.
-    async fn search(command: String, query: String) -> Result<Vec<SearchResult>, String> {
+    /// The windows Alt+Tab would show, listed anew each time the view is
+    /// drawn.
+    async fn open_designed_view(command: String, _launch: LaunchRecord) -> Result<Windows, String> {
         if command != SWITCH {
             return Err(format!("unknown command: {command}"));
         }
-        let typed = query.trim().to_lowercase();
-        let listed = windows::list_windows().map_err(explain)?;
-        let found = listed
-            .iter()
-            .filter(|window| {
-                window.title.to_lowercase().contains(&typed)
-                    || window.application_name.to_lowercase().contains(&typed)
-            })
-            .map(|window| SearchResult {
-                id: window.id.clone(),
-                title: window.title.clone(),
-                subtitle: Some(subtitle(window)),
-                // A window, not a file of a granted folder.
-                file: None,
-            })
-            .collect();
-        Ok(found)
+        Ok(Windows)
     }
 }
