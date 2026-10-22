@@ -60,18 +60,10 @@ names, for a revision users can install — what the Release workflow does.
 `rust-toolchain.toml` pins the toolchain Pane builds its own extensions
 with.
 
-The component builds against Pane's Rust SDK, `pane-extension`
-(`pane-extension = "0.2"` in [`Cargo.toml`](Cargo.toml)). The SDK is not
-published to crates.io yet (pane-app/pane#281); until it is, point a path
-at a Pane checkout's `guests/pane-extension` — as this repository's CI
-does — by appending to `Cargo.toml`:
-
-```toml
-[patch.crates-io]
-pane-extension = { path = "<a Pane checkout>/guests/pane-extension" }
-```
-
-pane-app/pane#287 removes the CI patch once the crate is published.
+The component builds against Pane's Rust SDK,
+[`pane-extension`](https://crates.io/crates/pane-extension), from crates.io
+(`pane-extension = "0.2"` in [`Cargo.toml`](Cargo.toml)); building it needs
+no Pane checkout.
 
 ## Issues and contributing
 
